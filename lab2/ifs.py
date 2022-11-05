@@ -1,9 +1,11 @@
 import numpy as np
+from joblib import Parallel, delayed
 
 
 class IFS:
-    def __init__(self, image, W, normalize_W=True) -> None:
-        self.W: np.array = W
+    def __init__(self, image, W, n_jobs=1, normalize_W=True):
+        self.W = W
+        self.n_jobs = n_jobs
 
         if image.shape[0] != image.shape[1]:
             raise ValueError("Image must be square!")
@@ -16,18 +18,16 @@ class IFS:
                 w[:, 2] *= self.size
 
     def iteration(self):
-        # Apply contractions
-        points = []
-        for w in self.W:
-            points.append(self._apply(w))
-        points = np.hstack(points)
+        # Handle parallel jobs
+        slices = self._build_slices(self.points.shape[1], self.n_jobs)
+        points = Parallel(n_jobs=self.n_jobs)(
+            delayed(self._handle_points_parallel)(self.points[:, slices[i]:slices[i + 1]]) for i in
+            range(len(slices) - 1))
+        self.points = np.hstack(points)
 
-        # Remove duplicates
-        points = np.unique(points, axis=1)
-
-        # Remove wrong points
-        cond = np.logical_and(np.all(points >= 0, axis=0), np.all(points < self.size, axis=0))
-        self.points = points[:, cond]
+        # Remove duplicates after merging the results
+        if self.n_jobs > 1:
+            self.points = np.unique(self.points, axis=1)
 
     def run_iterations(self, n, log=None):
         for i in range(n):
@@ -54,8 +54,34 @@ class IFS:
 
         return np.array(points).T
 
-    def _apply(self, w):
-        return np.rint(w[:, :2] @ self.points + w[:, 2, None])
+    @staticmethod
+    def _build_slices(n, n_slices):
+        interval = np.maximum(n // n_slices, 1)
+        slices = [0]
+        for _ in range(n_slices):
+            slices.append(slices[-1] + interval)
+            if slices[-1] >= n:
+                break
+        slices[-1] = n
+        return slices
+
+    def _handle_points_parallel(self, points_to_process):
+        # Apply contractions
+        points = []
+        for w in self.W:
+            points.append(self._apply(points_to_process, w))
+        points = np.hstack(points)
+
+        # Remove duplicates
+        points = np.unique(points, axis=1)
+
+        # Remove wrong points
+        cond = np.logical_and(np.all(points >= 0, axis=0), np.all(points < self.size, axis=0))
+        return points[:, cond]
+
+    @staticmethod
+    def _apply(points, w):
+        return np.rint(w[:, :2] @ points + w[:, 2, None])
 
 
 if __name__ == '__main__':
@@ -66,9 +92,9 @@ if __name__ == '__main__':
     image[76, 80] = 1
     image[0, 50] = 1
 
-    W = [np.array([[0.5, -0.3, 10], [0.5, 0, -2]])]
+    W = [np.array([[0.5, -0.3, 0.1], [0.5, 0, -0.02]])]
 
-    ifs = IFS(image, W)
+    ifs = IFS(image, W, n_jobs=2)
     print('0\n', ifs.points)
     ifs.iteration()
     print('1\n', ifs.points)

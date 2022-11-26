@@ -10,10 +10,14 @@ class BA:
         self.n = n
         self.m = m
 
-        self.v = list(range(0, n_start))
-        self.prob_num = [1] * n_start
+        self.next_v = n_start
+        self.v_list = np.arange(self.n)
+
+        self.prob_num = np.zeros(self.n)
+        self.prob_num[:n_start] = 1
         self.prob_den = n_start
 
+        self.adj = None
         self.compute_adj = compute_adj
         if self.compute_adj:
             self.adj = {i: [] for i in range(n_start)}
@@ -23,32 +27,32 @@ class BA:
         self._add_vertex(neighbors)
 
     def build(self):
-        for _ in range(self.v[-1] + 1, self.n):
+        for _ in range(self.next_v, self.n):
             self.turn()
 
     def get_degrees(self):
-        return np.array(self.prob_num) - 1
+        return self.prob_num - 1
 
     def _generate_neighbors(self):
-        return list(np.random.choice(self.v, size=self.m, replace=False, p=np.array(self.prob_num) / self.prob_den))
+        return np.random.choice(self.v_list[:self.next_v], size=self.m, replace=False,
+                                p=self.prob_num[:self.next_v] / self.prob_den)
 
     def _add_vertex(self, neighbors):
-        current_v = self.v[-1] + 1
-
-        self.v.append(current_v)
-        self.prob_num.append(self.m + 1)
+        self.prob_num[self.next_v] = self.m + 1
         self.prob_den += self.m * 2 + 1
         if self.compute_adj:
-            self.adj[current_v] = neighbors
+            self.adj[self.next_v] = list(neighbors)
 
         for n in neighbors:
             self.prob_num[n] += 1
             if self.compute_adj:
-                self.adj[n].append(current_v)
+                self.adj[n].append(self.next_v)
+
+        self.next_v += 1
 
 
 if __name__ == '__main__':
-    ba = BA(10, 2, 2)
+    ba = BA(10, 2, 2, compute_adj=True)
     print(ba.adj)
 
     ba.turn()
@@ -58,6 +62,7 @@ if __name__ == '__main__':
     print(ba.adj)
 
     ba.build()
-    print(ba.v)
+    print(ba.next_v)
     print(ba.adj)
     print(ba.prob_num)
+    print(ba.get_degrees())
